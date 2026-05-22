@@ -1,7 +1,9 @@
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use std::f32::consts::E;
+use rayon::prelude::*;
 
+#[derive(Clone)]
 struct Driver {
     number: u32,
     lap: u32,
@@ -19,6 +21,7 @@ struct Track {
     pitloss: f32,
 }
 
+#[derive(Clone)]
 struct Strategy {
     tire: u32,
     lap: u32,
@@ -64,8 +67,8 @@ impl Track {
     }
 }
 
-fn AdjustGap(drivers: &mut [Driver]) {
-    let mut gaps = [0.0; 32];                                               //oversized array for future reusability
+fn AdjustGap(drivers: &mut [Driver; n]) {
+    let mut gaps = [0.0; n];                                               //oversized array for future reusability
     for i in (1..drivers.len()) {
         let gap = drivers[i].totaltime - drivers[i-1].totaltime;
         gaps[i] = (4.0 * gap + (16.0 * gap.powi(2) + 16.0).sqrt()) / 8.0;
@@ -76,7 +79,7 @@ fn AdjustGap(drivers: &mut [Driver]) {
     }
 }
 
-fn CheckOvertake(drivers: &mut [Driver], track: &Track, laptimes: &mut [f32], rng: &mut impl Rng) {
+fn CheckOvertake(drivers: &mut [Driver; n], track: &Track, laptimes: &mut [f32], rng: &mut impl Rng) {
     let normal = Normal::new(0.7, 0.3).unwrap();
     for i in (1..drivers.len()) {
         let gap = drivers[i].totaltime - drivers[i-1].totaltime;
@@ -92,7 +95,7 @@ fn CheckOvertake(drivers: &mut [Driver], track: &Track, laptimes: &mut [f32], rn
     }
 }
 
-fn CheckPitstop(drivers: &mut [Driver], track: &Track, rng: &mut impl Rng) {
+fn CheckPitstop(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng) {
     for i in (0..drivers.len()) {
 
         if drivers[i].strat.is_empty() {continue; }
@@ -112,21 +115,159 @@ fn CheckPitstop(drivers: &mut [Driver], track: &Track, rng: &mut impl Rng) {
             drivers[i].strat.remove(0); 
         }
         let mut j = i;
-        while j < drivers.len() - 1 && drivers[j].totaltime < drivers[j+1].totaltime {
+        while j < drivers.len() - 1 && drivers[j].totaltime > drivers[j+1].totaltime {
             drivers.swap(j, j+1);
             j += 1;
         }
     }
 }
 
-fn SimulateLap(drivers: &mut [Driver], track: &Track, rng: &mut impl Rng, defaultmod: f32) {
-    let mut laptime: [f32; 22] = std::array::from_fn(|i| drivers[i].tiremod(defaultmod, rng));
+fn SimulateLap(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng, defaultmod: f32) {
+    let mut laptime: [f32; n] = std::array::from_fn(|i| drivers[i].tiremod(defaultmod, rng));
     for i in (0..drivers.len()) {drivers[i].totaltime += laptime[i];}
     CheckOvertake(drivers, track, &mut laptime, rng);
     AdjustGap(drivers);
     CheckPitstop(drivers, track, rng);
 }
 
-fn main() {
-    println!("Hello world!")
+fn SimulateRace(mut drivers: [Driver; n], track: &Track, rng: &mut impl Rng, defaultmod: f32) -> [Driver; n] {
+    for i in drivers[0].lap..=track.laps {
+        SimulateLap(&mut drivers, track, rng, defaultmod);
+    }
+    drivers
 }
+
+fn SimulateFull(drivers: [Driver; n], track: Track) -> Vec<[Driver; n]>{
+    let defaultmod = track.findDefaultMod();
+    let result: Vec<[Driver; n]> = (0..10_000).into_par_iter()
+        .map(|_i| {
+            let mut rng = rand::thread_rng();
+            SimulateRace(drivers.clone(), &track, &mut rng, defaultmod)
+        })
+        .collect();
+    return result;
+}
+
+const n: usize = 22; 
+const N: usize = 22;
+
+fn main() {
+    // 1. Initialize Track parameters (e.g., a 50-lap race with standard overtake and pitloss windows)
+    let track = Track {
+        laps: 55,
+        overtake: 4.5,  // Represents track layout passing difficulty modifier
+        pitloss: 22.5,   // Time in seconds lost during a standard trip down the pitlane
+    };
+
+    // 2. Define standard template strategy paths for different starting compounds
+    let soft_strat = vec![
+        Strategy { tire: 1, lap: 15, sd: 1.5 }, // Switch to Mediums on lap 15
+        Strategy { tire: 2, lap: 35, sd: 2.0 }, // Switch to Hards on lap 35
+    ];
+
+    let medium_strat = vec![
+        Strategy { tire: 2, lap: 22, sd: 2.5 }, // Switch to Hards on lap 22
+    ];
+
+    // 3. Populate a hardcoded array matching your static constraint of exactly N = 22 drivers
+    // Grid matches realistic racing numbers, lap tracking intervals, and fuel metrics
+    let starting_grid: [Driver; n] = [
+        Driver { number: 1,  lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.0,  optlap: 81.2, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 11, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.2,  optlap: 81.5, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 16, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.5,  optlap: 81.3, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 55, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 0.8,  optlap: 81.6, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 63, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 1.1,  optlap: 81.4, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 44, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 1.4,  optlap: 81.5, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 4,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 1.7,  optlap: 81.3, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 81, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 2.0,  optlap: 81.7, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 14, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 2.3,  optlap: 81.8, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 18, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 2.6,  optlap: 82.1, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 10, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 3.0,  optlap: 82.2, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 31, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 3.4,  optlap: 82.3, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 23, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 3.8,  optlap: 82.0, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 2,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 4.2,  optlap: 82.6, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 22, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 4.6,  optlap: 82.2, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 3,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 5.0,  optlap: 82.4, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 77, lap: 0, tire: (2, 0.0), fuel: 100.0, totaltime: 5.5,  optlap: 82.8, isstuck: false, strat: vec![] }, // Alternative strategy variant
+        Driver { number: 24, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 6.0,  optlap: 82.9, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 20, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 6.5,  optlap: 82.5, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 27, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 7.0,  optlap: 82.4, isstuck: false, strat: soft_strat.clone() },
+        Driver { number: 21, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 7.5,  optlap: 83.1, isstuck: false, strat: medium_strat.clone() },
+        Driver { number: 30, lap: 0, tire: (2, 0.0), fuel: 100.0, totaltime: 8.0,  optlap: 83.5, isstuck: false, strat: vec![] }, 
+    ];
+
+    println!("Executing 10,000 parallel simulation runs...");
+    
+    // 4. Run the simulation
+    let sim_output = SimulateFull(starting_grid.clone(), track);
+    
+    println!("Simulations complete! Total datasets captured: {}", sim_output.len());
+    //println!("First simulated grid sample winner number: {}", sim_output[0][0].number);
+    for i in 0..20 {
+        println!("simulation {i}: Winner{}, Second{}, Third{}", sim_output[i][0].number, sim_output[i][1].number, sim_output[i][2].number);
+    }
+    PrintVisualHeatmap(&sim_output, &starting_grid)
+}
+
+fn PrintVisualHeatmap(sim_data: &Vec<[Driver; n]>, starting_grid: &[Driver; n]) {
+    let matrix = AggregateToMatrixWithRealNumbers(sim_data, starting_grid);
+    let driver_lookup: [u32; n] = std::array::from_fn(|i| starting_grid[i].number);
+
+    println!("\n================== FINISHING POSITION HEATMAP ==================");
+    println!("Driver | P1                    P5                    P15                  P22");
+    println!("-------|---------------------------------------------------------------------");
+
+    for row in 0..n {
+        print!(" #{:<3}  | ", driver_lookup[row]);
+        for pos in 0..n {
+            let prob = matrix[row][pos];
+            // Assign a visual shading block based on probability density percentage
+            let symbol = match prob {
+                p if p > 0.50 => "█", // Heavy favorite cluster (>50% chance)
+                p if p > 0.25 => "▓", // Strong chance (25% - 50%)
+                p if p > 0.10 => "▒", // Moderate chance (10% - 25%)
+                p if p > 0.02 => "░", // Outside chance (2% - 10%)
+                _ => "·",             // Near zero chance
+            };
+            print!("{}  ", symbol); // Print with spacing for visual grid shape
+        }
+        println!();
+    }
+    println!("=====================================================================");
+}
+/// Takes the 10,000 simulated race grids and maps them into a fixed 22x22 matrix.
+/// Rows = The original order of drivers in your starting_grid.
+/// Columns = Finishing Position index (0 = 1st place, 21 = 22nd place).
+fn AggregateToMatrixWithRealNumbers(sim_data: &Vec<[Driver; N]>, starting_grid: &[Driver; N]) -> [[f32; N]; N] {
+    let total_races = sim_data.len() as f32;
+    
+    // 1. Initialise a raw frequency counting grid on the stack filled with zeroes
+    let mut raw_counts = [[0u32; N]; N];
+
+    // 2. Extract the exact order of real driver numbers from your starting grid layout
+    // Example lookup layout: [1, 11, 16, 55, 63, 44, 4, 81, 14, 18, 10, 31, 23, 2, 22, 3, 77, 24, 20, 27, 21, 30]
+    let driver_lookup: [u32; N] = std::array::from_fn(|i| starting_grid[i].number);
+
+    // 3. Loop over every completed race and track finishing placements
+    for race_grid in sim_data {
+        for (pos, driver) in race_grid.iter().enumerate() {
+            
+            // Find where this driver's number sits in the original grid lineup.
+            // This maps their real racing number to a row index between 0 and 21.
+            if let Some(row_index) = driver_lookup.iter().position(|&num| num == driver.number) {
+                raw_counts[row_index][pos] += 1;
+            }
+        }
+    }
+
+    // 4. Divide raw counts by the total number of races to get a probability percentage fraction
+    let mut probability_matrix = [[0.0f32; N]; N];
+    for row in 0..N {
+        for pos in 0..N {
+            probability_matrix[row][pos] = raw_counts[row][pos] as f32 / total_races;
+        }
+    }
+
+    probability_matrix
+}
+
