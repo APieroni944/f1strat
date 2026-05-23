@@ -83,14 +83,14 @@ fn CheckOvertake(drivers: &mut [Driver; n], track: &Track, laptimes: &mut [f32],
     let normal = Normal::new(0.7, 0.3).unwrap();
     for i in (1..drivers.len()) {
         let gap = drivers[i].totaltime - drivers[i-1].totaltime;
-        let deltapace = laptimes[i] - laptimes [i-1];
+        let deltapace = laptimes[i-1] - laptimes [i];
         let exponent = -8.0 * (deltapace - gap / track.overtake);
         let p_overtake = 1.0 / (1.0 + E.powf(exponent));
         if rng.gen_range(0.0..=1.0) < p_overtake {
+            let gap: f32 = (normal.sample(rng) as f32).max(0.1);
+            drivers[i-1].totaltime = drivers[i].totaltime + gap;
             drivers.swap(i, i-1);
             laptimes.swap(i, i-1);
-            let gap: f32 = (normal.sample(rng) as f32).max(0.1);
-            drivers[i].totaltime = drivers[i-1].totaltime + gap;
         }
     }
 }
@@ -104,9 +104,9 @@ fn CheckPitstop(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng) {
         let k = 1.8138 / drivers[i].strat[0].sd;                          //pit lap flexibility
         let mut x = drivers[i].lap as f32 - drivers[i].strat[0].lap as f32;         //distance from target lap
 
-        if drivers[i].isstuck{ x += 2.0; }
+        if drivers[i].isstuck{ x += 0.0; }
         if i < drivers.len() - 1 {
-            if drivers[i+1].isstuck{ x -= 2.0; }
+            if drivers[i+1].isstuck{ x -= 0.0; }
         }
 
         if rng.gen_range(0.0..=1.0) < 1.0 / (1.0 + (-k * x).exp()) {
@@ -121,6 +121,18 @@ fn CheckPitstop(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng) {
         }
     }
 }
+fn SortDrivers(drivers: &mut [Driver; n]) {
+    loop {
+        let mut noswaps = true;
+        for i in 0..drivers.len() - 1 {
+            if drivers[i].totaltime > drivers[i+1].totaltime {
+                drivers.swap(i, i+1);
+                noswaps = false;
+            }
+        }
+        if noswaps {break;}
+    }
+}
 
 fn SimulateLap(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng, defaultmod: f32) {
     let mut laptime: [f32; n] = std::array::from_fn(|i| drivers[i].tiremod(defaultmod, rng));
@@ -128,6 +140,7 @@ fn SimulateLap(drivers: &mut [Driver; n], track: &Track, rng: &mut impl Rng, def
     CheckOvertake(drivers, track, &mut laptime, rng);
     AdjustGap(drivers);
     CheckPitstop(drivers, track, rng);
+    //SortDrivers(drivers);
 }
 
 fn SimulateRace(mut drivers: [Driver; n], track: &Track, rng: &mut impl Rng, defaultmod: f32) -> [Driver; n] {
@@ -171,31 +184,31 @@ fn main() {
 
     // 3. Populate a hardcoded array matching your static constraint of exactly N = 22 drivers
     // Grid matches realistic racing numbers, lap tracking intervals, and fuel metrics
-    let starting_grid: [Driver; n] = [
-        Driver { number: 1,  lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.0,  optlap: 81.2, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 11, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.2,  optlap: 81.5, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 16, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 0.5,  optlap: 81.3, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 55, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 0.8,  optlap: 81.6, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 63, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 1.1,  optlap: 81.4, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 44, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 1.4,  optlap: 81.5, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 4,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 1.7,  optlap: 81.3, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 81, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 2.0,  optlap: 81.7, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 14, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 2.3,  optlap: 81.8, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 18, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 2.6,  optlap: 82.1, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 10, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 3.0,  optlap: 82.2, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 31, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 3.4,  optlap: 82.3, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 23, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 3.8,  optlap: 82.0, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 2,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 4.2,  optlap: 82.6, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 22, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 4.6,  optlap: 82.2, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 3,  lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 5.0,  optlap: 82.4, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 77, lap: 0, tire: (2, 0.0), fuel: 100.0, totaltime: 5.5,  optlap: 82.8, isstuck: false, strat: vec![] }, // Alternative strategy variant
-        Driver { number: 24, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 6.0,  optlap: 82.9, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 20, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 6.5,  optlap: 82.5, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 27, lap: 0, tire: (0, 0.0), fuel: 100.0, totaltime: 7.0,  optlap: 82.4, isstuck: false, strat: soft_strat.clone() },
-        Driver { number: 21, lap: 0, tire: (1, 0.0), fuel: 100.0, totaltime: 7.5,  optlap: 83.1, isstuck: false, strat: medium_strat.clone() },
-        Driver { number: 30, lap: 0, tire: (2, 0.0), fuel: 100.0, totaltime: 8.0,  optlap: 83.5, isstuck: false, strat: vec![] }, 
+    let starting_grid: [Driver; N] = [
+// --- Top Tier (Title Contenders) ---
+Driver { number: 1,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.0, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 2,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.3, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 3,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.6, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 4,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.9, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 5,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.2, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 6,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.5, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 7,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.8, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 8,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.1, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 9,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.4, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 10, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.7, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 11, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.0, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 12, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.3, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 13, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.6, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 14, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.9, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 15, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.2, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 16, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.5, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 17, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.8, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 18, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.1, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 19, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.4, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 20, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.7, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 21, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 79.0, isstuck: false, strat: get_test_strategy() },
+    Driver { number: 22, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 79.3, isstuck: false, strat: get_test_strategy() },
     ];
-
     println!("Executing 10,000 parallel simulation runs...");
     
     // 4. Run the simulation
@@ -235,6 +248,14 @@ fn PrintVisualHeatmap(sim_data: &Vec<[Driver; n]>, starting_grid: &[Driver; n]) 
     }
     println!("=====================================================================");
 }
+
+fn get_test_strategy() -> Vec<Strategy> {
+    vec![
+        Strategy { tire: 1, lap: 20, sd: 1.0 }, // Lap 20: Switch to Prime (1)
+        Strategy { tire: 2, lap: 45, sd: 1.0 }, // Lap 45: Switch to Quali (2)
+    ]
+}
+
 /// Takes the 10,000 simulated race grids and maps them into a fixed 22x22 matrix.
 /// Rows = The original order of drivers in your starting_grid.
 /// Columns = Finishing Position index (0 = 1st place, 21 = 22nd place).
