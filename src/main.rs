@@ -1,9 +1,14 @@
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use std::f32::consts::E;
-use rayon::prelude::*;
+use rayon::{prelude::*, result};
+use serde::{Deserialize, Serialize};
+//use rmp_serde::encode
+use std::fs::File;
+use std::io::Write;
 
-#[derive(Clone)]
+
+#[derive(Clone, Serialize, Deserialize)]
 struct Driver {
     number: u32,
     lap: u32,
@@ -15,13 +20,14 @@ struct Driver {
     strat: Vec<Strategy>,
 }
 
+#[derive(Deserialize)]
 struct Track {
     laps: u32,
     overtake: f32,
     pitloss: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Strategy {
     tire: u32,
     lap: u32,
@@ -161,69 +167,67 @@ fn SimulateFull(drivers: [Driver; n], track: Track) -> Vec<[Driver; n]>{
     return result;
 }
 
+/// Takes the 10,000 simulated race grids and maps them into a fixed 22x22 matrix.
+/// Rows = The original order of drivers in your starting_grid.
+/// Columns = Finishing Position index (0 = 1st place, 21 = 22nd place).
+fn AggregateData(sim_data: &Vec<[Driver; n]>, starting_grid: &[Driver; n]) -> [[f32; n]; n] {
+    let total_races = sim_data.len() as f32;
+
+    // 1. Initialise a raw frequency counting grid on the stack filled with zeroes
+    let mut raw_counts = [[0u32; n]; n];
+
+    // 2. Extract the exact order of real driver numbers from your starting grid layout
+    // Example lookup layout: [1, 11, 16, 55, 63, 44, 4, 81, 14, 18, 10, 31, 23, 2, 22, 3, 77, 24, 20, 27, 21, 30]
+    let driver_lookup: [u32; n] = std::array::from_fn(|i| starting_grid[i].number);
+
+    // 3. Loop over every completed race and track finishing placements
+    for race_grid in sim_data {
+        for (pos, driver) in race_grid.iter().enumerate() {
+            
+            // Find where this driver's number sits in the original grid lineup.
+            // This maps their real racing number to a row index between 0 and 21.
+            if let Some(row_index) = driver_lookup.iter().position(|&num| num == driver.number) {
+                raw_counts[row_index][pos] += 1;
+            }
+        }
+    }
+
+    // 4. Divide raw counts by the total number of races to get a probability percentage fraction
+    let mut probability_matrix = [[0.0f32; n]; n];
+    for row in 0..n {
+        for pos in 0..n {
+            probability_matrix[row][pos] = raw_counts[row][pos] as f32 / total_races;
+        }
+    }
+
+    probability_matrix
+}
+
 const n: usize = 22; 
 const N: usize = 22;
 
 fn main() {
-    // 1. Initialize Track parameters (e.g., a 50-lap race with standard overtake and pitloss windows)
-    let track = Track {
-        laps: 55,
-        overtake: 4.5,  // Represents track layout passing difficulty modifier
-        pitloss: 22.5,   // Time in seconds lost during a standard trip down the pitlane
-    };
+    let mut gridfile = File::open("grid.msgpack").unwrap();
+    let starting_grid: [Driver; 22] = rmp_serde::decode::from_read(&mut gridfile).unwrap();
+    drop(gridfile);
 
-    // 2. Define standard template strategy paths for different starting compounds
-    let soft_strat = vec![
-        Strategy { tire: 1, lap: 15, sd: 1.5 }, // Switch to Mediums on lap 15
-        Strategy { tire: 2, lap: 35, sd: 2.0 }, // Switch to Hards on lap 35
-    ];
+    let mut trackfile = File::open("track.msgpack").unwrap();
+    let track: Track = rmp_serde::decode::from_read(&mut trackfile).unwrap();
+    drop(trackfile);    
 
-    let medium_strat = vec![
-        Strategy { tire: 2, lap: 22, sd: 2.5 }, // Switch to Hards on lap 22
-    ];
-
-    // 3. Populate a hardcoded array matching your static constraint of exactly N = 22 drivers
-    // Grid matches realistic racing numbers, lap tracking intervals, and fuel metrics
-    let starting_grid: [Driver; N] = [
-// --- Top Tier (Title Contenders) ---
-Driver { number: 1,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.0, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 2,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.3, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 3,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.6, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 4,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 73.9, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 5,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.2, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 6,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.5, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 7,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 74.8, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 8,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.1, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 9,  lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.4, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 10, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 75.7, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 11, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.0, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 12, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.3, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 13, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.6, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 14, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 76.9, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 15, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.2, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 16, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.5, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 17, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 77.8, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 18, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.1, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 19, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.4, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 20, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 78.7, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 21, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 79.0, isstuck: false, strat: get_test_strategy() },
-    Driver { number: 22, lap: 0, tire: (0, 0.0), fuel: 80.0, totaltime: 0.0, optlap: 79.3, isstuck: false, strat: get_test_strategy() },
-    ];
-    println!("Executing 10,000 parallel simulation runs...");
-    
-    // 4. Run the simulation
     let sim_output = SimulateFull(starting_grid.clone(), track);
+    let result = AggregateData(&sim_output, &starting_grid);
     
-    println!("Simulations complete! Total datasets captured: {}", sim_output.len());
-    //println!("First simulated grid sample winner number: {}", sim_output[0][0].number);
-    for i in 0..20 {
-        println!("simulation {i}: Winner{}, Second{}, Third{}", sim_output[i][0].number, sim_output[i][1].number, sim_output[i][2].number);
+    let mut resultfile = File::create("result.msgpack").expect("Failed to open result file");
+    let resultSerialised = rmp_serde::to_vec(&result);
+    if let Ok(data) = resultSerialised {
+        resultfile.write_all(&data).expect("Failed to write to result file");
     }
-    PrintVisualHeatmap(&sim_output, &starting_grid)
+    //PrintVisualHeatmap(&sim_output, &starting_grid)
 }
 
 fn PrintVisualHeatmap(sim_data: &Vec<[Driver; n]>, starting_grid: &[Driver; n]) {
-    let matrix = AggregateToMatrixWithRealNumbers(sim_data, starting_grid);
+    let matrix = AggregateData(sim_data, starting_grid);
     let driver_lookup: [u32; n] = std::array::from_fn(|i| starting_grid[i].number);
 
     println!("\n================== FINISHING POSITION HEATMAP ==================");
@@ -251,44 +255,9 @@ fn PrintVisualHeatmap(sim_data: &Vec<[Driver; n]>, starting_grid: &[Driver; n]) 
 
 fn get_test_strategy() -> Vec<Strategy> {
     vec![
-        Strategy { tire: 1, lap: 20, sd: 1.0 }, // Lap 20: Switch to Prime (1)
-        Strategy { tire: 2, lap: 45, sd: 1.0 }, // Lap 45: Switch to Quali (2)
+        Strategy { tire: 1, lap: 20, sd: 0.2 }, // Lap 20: Switch to Prime (1)
+        Strategy { tire: 2, lap: 45, sd: 0.2 }, // Lap 45: Switch to Quali (2)
     ]
 }
 
-/// Takes the 10,000 simulated race grids and maps them into a fixed 22x22 matrix.
-/// Rows = The original order of drivers in your starting_grid.
-/// Columns = Finishing Position index (0 = 1st place, 21 = 22nd place).
-fn AggregateToMatrixWithRealNumbers(sim_data: &Vec<[Driver; N]>, starting_grid: &[Driver; N]) -> [[f32; N]; N] {
-    let total_races = sim_data.len() as f32;
-    
-    // 1. Initialise a raw frequency counting grid on the stack filled with zeroes
-    let mut raw_counts = [[0u32; N]; N];
-
-    // 2. Extract the exact order of real driver numbers from your starting grid layout
-    // Example lookup layout: [1, 11, 16, 55, 63, 44, 4, 81, 14, 18, 10, 31, 23, 2, 22, 3, 77, 24, 20, 27, 21, 30]
-    let driver_lookup: [u32; N] = std::array::from_fn(|i| starting_grid[i].number);
-
-    // 3. Loop over every completed race and track finishing placements
-    for race_grid in sim_data {
-        for (pos, driver) in race_grid.iter().enumerate() {
-            
-            // Find where this driver's number sits in the original grid lineup.
-            // This maps their real racing number to a row index between 0 and 21.
-            if let Some(row_index) = driver_lookup.iter().position(|&num| num == driver.number) {
-                raw_counts[row_index][pos] += 1;
-            }
-        }
-    }
-
-    // 4. Divide raw counts by the total number of races to get a probability percentage fraction
-    let mut probability_matrix = [[0.0f32; N]; N];
-    for row in 0..N {
-        for pos in 0..N {
-            probability_matrix[row][pos] = raw_counts[row][pos] as f32 / total_races;
-        }
-    }
-
-    probability_matrix
-}
 
