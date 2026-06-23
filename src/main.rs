@@ -25,6 +25,7 @@ struct Track {
     laps: u32,
     overtake: f32,
     pitloss: f32,
+    wearmod: f32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -69,7 +70,7 @@ impl Driver {
 
 impl Track {
     fn findDefaultMod(&self) -> f32 {
-        71 as f32 /self.laps as f32
+        71 as f32 /self.laps as f32 * self.wearmod;
     }
 }
 
